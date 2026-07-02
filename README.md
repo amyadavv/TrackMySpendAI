@@ -77,7 +77,7 @@ All `fetch()` calls live in `src/api/expenseApi.js`. Components never construct 
 
 ### 7. Environment variables
 - **Frontend** uses Vite's `VITE_` prefix convention — variables are inlined at build time and never leak non-prefixed secrets to the bundle.
-- **Backend** uses Node 20.6+'s native `--env-file=.env` flag — zero runtime dependencies for env loading.
+- **Backend** uses Node 20.12+'s `--env-file-if-exists=.env` flag — silently skips loading if `.env` is absent (e.g. on Render or Railway where env vars are injected by the platform). No extra dependencies needed.
 
 ### 8. Dark-mode-safe dropdowns
 Browser `<select>` elements use the OS native panel, which ignores CSS `background: transparent`. All dropdowns are given an explicit `background-color: var(--select-bg)` with matching `color-scheme` set on `:root` / `[data-theme="light"]`, so the native panel is always readable in both themes.
