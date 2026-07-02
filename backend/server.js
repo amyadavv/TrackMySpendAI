@@ -2,10 +2,11 @@ import express from 'express';
 import cors from 'cors';
 import { getExpenses, addExpense, deleteExpense } from './db.js';
 
-// PORT and HOST are loaded from .env via `node --env-file=.env` (Node 20.6+)
+// PORT and HOST are injected by the platform (Render, Railway, etc.) or loaded from .env locally.
+// HOST defaults to 0.0.0.0 so the server binds on all interfaces — required by cloud platforms.
 const app = express();
 const PORT = process.env.PORT || 5000;
-const HOST = process.env.HOST || 'localhost';
+const HOST = process.env.HOST || '0.0.0.0';
 
 
 // Enable CORS for frontend integration
