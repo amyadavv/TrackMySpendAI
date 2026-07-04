@@ -1,30 +1,108 @@
 # TrackMySpend Backend API
 
-A resilient, production-like backend API for tracking expenses, built using Node.js and Express.
+A production-grade backend API for tracking expenses, built using Node.js, Express, MongoDB (via Mongoose), and the Gemini API (`@google/genai`).
+
+---
 
 ## Core Features
 
-- **Precision Money Representation**: To avoid float arithmetic issues (e.g. `0.1 + 0.2 = 0.30000000000000004`), amounts are stored and validated as **integer cents** (e.g., `$15.99` is processed and stored as `1599`).
-- **Idempotency Protection**: To prevent duplicate expenses if a network failure occurs after the server completes a request but before the client receives the response, the API accepts a client-provided `idempotencyKey` (passed in headers as `Idempotency-Key` or inside the request body).
+- **Precision Money Representation**: To avoid float arithmetic issues (e.g., `0.1 + 0.2 = 0.30000000000000004`), amounts are stored and validated as **integer cents** (e.g., `$15.99` is processed and stored as `1599`).
+- **User Authentication**: Secure user management with JWT (JSON Web Tokens), password hashing, and dynamic salting. All expense endpoints are protected and scoped per user.
+- **MongoDB Atlas Integration**: Integrated with MongoDB using Mongoose, featuring indexing for optimal query speeds (e.g., composite indices on user queries and sparse indices on idempotency keys).
+- **AI-Powered Parsing**: Integrates the `gemini-2.5-flash` model using `@google/genai` to parse natural language sentences (like *"Spent 250 rupees on dinner yesterday"*) into structured expense data.
+- **Idempotency Protection**: To prevent duplicate expenses if a network failure occurs after the server completes a request but before the client receives the response, the API accepts a client-provided `idempotencyKey`.
   - If a POST request is retried with the same key, the server identifies the duplicate, skips insertion, and returns the already-created expense details with a `200 OK` response and `X-Cache-Lookup: HIT - IDEMPOTENCY` header.
-- **Atomic JSON Store**: Implements file-based storage in `data/expenses.json` with in-memory caching. Updates are written atomically (written to a temporary `.tmp` file, then renamed to overwrite the destination) to prevent corruption if the server crashes mid-write.
-- **Error Injection Middleware**: To simulate real-world unreliable conditions for testing purposes, the server respects headers:
+- **Error Injection Middleware**: To simulate real-world unreliable conditions for testing purposes, the server respects the headers:
   - `x-simulate-slow`: delays requests (defaults to 2000ms).
   - `x-simulate-error`: injects a `503 Service Unavailable` error at a 40% probability rate.
 
+---
+
+## Environment Variables
+
+Copy `.env.example` to `.env` and fill in the following variables:
+
+```env
+PORT=5000
+MONGO_URI=mongodb+srv://...     # MongoDB Atlas connection string
+JWT_SECRET=your_jwt_secret     # Secret key for signing JWT tokens
+GEMINI_API_KEY=AQ...           # Gemini API key from Google AI Studio
+```
+
+---
+
 ## API Specification
 
-### 1. `GET /expenses`
-Returns a list of all expenses.
+All paths are prefixed with `/`.
 
+### 1. Authentication Routes (Public)
+
+#### `POST /auth/register`
+Creates a new user account. Returns a JWT on success.
+- **Request Body**:
+  ```json
+  {
+    "email": "user@example.com",
+    "password": "strongpassword123"
+  }
+  ```
+- **Response**: `201 Created`
+  ```json
+  {
+    "token": "eyJhbGciOi...",
+    "user": {
+      "id": "60c72b2f9b1d8e25d8c36211",
+      "email": "user@example.com"
+    }
+  }
+  ```
+
+#### `POST /auth/login`
+Authenticates email + password. Returns a JWT on success.
+- **Request Body**:
+  ```json
+  {
+    "email": "user@example.com",
+    "password": "strongpassword123"
+  }
+  ```
+- **Response**: `200 OK`
+  ```json
+  {
+    "token": "eyJhbGciOi...",
+    "user": {
+      "id": "60c72b2f9b1d8e25d8c36211",
+      "email": "user@example.com"
+    }
+  }
+  ```
+
+#### `GET /auth/me`
+Fetches the authenticated user profile.
+- **Headers**:
+  - `Authorization: Bearer <token>`
+- **Response**: `200 OK`
+  ```json
+  {
+    "id": "60c72b2f9b1d8e25d8c36211",
+    "email": "user@example.com"
+  }
+  ```
+
+---
+
+### 2. Expense Routes (Protected — Requires `Authorization: Bearer <token>`)
+
+#### `GET /expenses`
+Returns a list of the authenticated user's expenses.
 - **Query Parameters**:
-  - `category` (optional): Filters expenses by category (case-insensitive).
-  - `sort` (optional): Sort order. Defaults to `date_desc` (newest date first). Supports `date_desc` or `date_asc`.
+  - `category` (optional): Filter expenses by category (case-insensitive).
+  - `sort` (optional): Sort order. Defaults to `date_desc`. Supports `date_desc` or `date_asc`.
 - **Response**: `200 OK`
   ```json
   [
     {
-      "id": "e457f5c6-72bb-419b-a320-c2419f9fdfeb",
+      "id": "60c72b2f9b1d8e25d8c362ff",
       "amount": 2550,
       "category": "Food",
       "description": "Lunch at diner",
@@ -35,9 +113,8 @@ Returns a list of all expenses.
   ]
   ```
 
-### 2. `GET /expenses/summary`
-Returns summary calculations for the currently recorded expenses.
-
+#### `GET /expenses/summary`
+Returns summary calculations (totals and categories breakdown) for the authenticated user.
 - **Response**: `200 OK`
   ```json
   {
@@ -56,11 +133,28 @@ Returns summary calculations for the currently recorded expenses.
   }
   ```
 
-### 3. `POST /expenses`
-Creates a new expense.
+#### `POST /expenses/parse`
+Parses a natural language sentence into a structured expense using Gemini.
+- **Request Body**:
+  ```json
+  {
+    "text": "250 rupees on dinner yesterday"
+  }
+  ```
+- **Response**: `200 OK`
+  ```json
+  {
+    "amount": 250,
+    "category": "Food",
+    "description": "Dinner",
+    "date": "2026-07-03"
+  }
+  ```
 
+#### `POST /expenses`
+Creates a new expense.
 - **Headers**:
-  - `Idempotency-Key` (highly recommended): Unique UUID string generated by the client.
+  - `Idempotency-Key` (optional, recommended): Unique UUID string generated by the client.
 - **Request Body**:
   ```json
   {
@@ -73,14 +167,12 @@ Creates a new expense.
   ```
 - **Response**:
   - `201 Created` on successful creation.
-  - `200 OK` on idempotency hit (re-returns the same expense instead of duplicating it).
+  - `200 OK` on idempotency hit (returns existing expense and adds `X-Cache-Lookup: HIT - IDEMPOTENCY` header).
   - `400 Bad Request` if payload validation fails.
 
-### 4. `DELETE /expenses/:id`
-Deletes a single expense by its UUID.
-
-- **URL Parameter**: `id` — the UUID of the expense to delete.
+#### `DELETE /expenses/:id`
+Deletes a single expense by its ID.
+- **URL Parameter**: `id` — the database ObjectId of the expense to delete.
 - **Response**:
   - `204 No Content` on success.
-  - `404 Not Found` if the ID does not exist.
-  - `400 Bad Request` if the ID is missing or malformed.
+  - `404 Not Found` if the ID does not exist or does not belong to the user.
