@@ -2,6 +2,4 @@ node_modules
 data/expenses.json
 
 # Environment variable files — keep .env.example but never commit real secrets
-.env
-.env.local
-.env.*.local
+
